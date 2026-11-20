@@ -3,9 +3,10 @@
 CCXT papi-only patch for Binance portfolio margin accounts.
 
 This API key ONLY works with papi.binance.com/papi — fapi is completely blocked.
-papi does NOT support leverageBrackets (returns 404), so we mock get_leverage_tiers
-on BOTH ccxt.binance AND freqtrade.exchange.Exchange to prevent crash on startup.
-All other requests are routed through papi via fetch-level URL rewriting.
+papi does NOT support leverageBrackets (returns 404), so we:
+1. Mock get_leverage_tiers on ccxt.binance AND freqtrade.exchange.Exchange
+2. Disable leverage tier loading in freqtrade config if possible
+3. Rewrite all fapi URLs to papi at fetch level
 """
 
 import ccxt
@@ -23,7 +24,6 @@ FAPI_PREFIXES = [
 ]
 PAPI_BASE = "https://papi.binance.com/papi"
 
-
 def _rewrite_url(url):
     """Replace any fapi base URL with papi."""
     if not isinstance(url, str):
@@ -32,7 +32,6 @@ def _rewrite_url(url):
         if url.startswith(prefix):
             return PAPI_BASE + url[len(prefix):]
     return url
-
 
 def patch_binance_papi_only():
     """Patch CCXT Binance and freqtrade Exchange for papi-only operation."""
@@ -87,10 +86,12 @@ def patch_binance_papi_only():
         log.info("ccxt.binance.get_leverage_tiers mocked")
 
     # 4. Mock get_leverage_tiers on freqtrade's Exchange wrapper
-    # This is the class that actually calls it during freqtrade startup
     try:
         from freqtrade.exchange import Exchange as FtExchange
-        original_ft_ltv = getattr(FtExchange, "get_leverage_tiers", None)
+        
+        # Store original if not already stored
+        if not hasattr(FtExchange, '_original_get_leverage_tiers'):
+            FtExchange._original_get_leverage_tiers = getattr(FtExchange, 'get_leverage_tiers', None)
 
         def mock_get_leverage_tiers_ft(self, symbols=None):
             log.info("freqtrade.Exchange.get_leverage_tiers mocked (papi incompatible)")
@@ -101,12 +102,27 @@ def patch_binance_papi_only():
             FtExchange._papi_leverage_mocked = True
             log.info("freqtrade.Exchange.get_leverage_tiers mocked")
     except ImportError:
-        log.warning("Could not import freqtrade.exchange.Exchange — running outside freqtrade?")
+        log.warning("Could not import freqtrade.exchange.Exchange")
     except Exception as e:
-        log.warning("Failed to patch freqtrade.Exchange.get_leverage_tiers: %s", e)
+        log.warning("Failed to patch freqtrade.Exchange: %s", e)
+
+    # 5. Monkey-patch the specific instance method if freqtrade is already running
+    # This catches cases where the class patch didn't apply to an existing instance
+    try:
+        import freqtrade.exchange.exchange as ft_ex_module
+        if hasattr(ft_ex_module, 'Exchange'):
+            # Patch any existing instances in memory
+            import gc
+            for obj in gc.get_objects():
+                if isinstance(obj, ft_ex_module.Exchange):
+                    if hasattr(obj, 'get_leverage_tiers') and not getattr(obj, '_papi_instance_mocked', False):
+                        obj.get_leverage_tiers = lambda symbols=None: (log.info("Instance get_leverage_tiers mocked"), {})[1]
+                        obj._papi_instance_mocked = True
+                        log.info("Patched existing freqtrade Exchange instance")
+    except Exception as e:
+        log.debug("Could not patch existing instances: %s", e)
 
     log.info("CCXT papi-only patch complete: ALL requests -> %s", PAPI_BASE)
-
 
 if __name__ == "__main__":
     patch_binance_papi_only()
