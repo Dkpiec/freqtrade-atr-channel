@@ -3,9 +3,9 @@
 CCXT papi-only patch for Binance portfolio margin accounts.
 
 This API key ONLY works with papi.binance.com/papi — fapi is completely blocked.
-papi does NOT support leverageBrackets (returns 404), so we:
-1. Rewrite all fapi URLs to papi at fetch level
-2. Patch freqtrade.exchange.common.api_retry_call to skip get_leverage_tiers entirely
+papi does NOT support leverageBrackets (returns 404), so we mock fetchLeverageTiers
+directly on ccxt.binance to return {} and prevent freqtrade from crashing on startup.
+All other requests are routed through papi via fetch-level URL rewriting.
 """
 
 import ccxt
@@ -34,7 +34,7 @@ def _rewrite_url(url):
 
 
 def patch_binance_papi_only():
-    """Patch CCXT Binance and freqtrade for papi-only operation."""
+    """Patch CCXT Binance for papi-only operation."""
     try:
         binance_cls = ccxt.binance
     except Exception as e:
@@ -75,47 +75,33 @@ def patch_binance_papi_only():
         binance_cls._papi_init_patched = True
         log.info("CCXT papi-only init patch applied")
 
-    # 3. Patch freqtrade.exchange.common.api_retry_call to skip get_leverage_tiers
-    # This is the actual retry wrapper that calls get_leverage_tiers and logs the error
-    try:
-        import freqtrade.exchange.common as ft_common
-        
-        original_api_retry = getattr(ft_common, 'api_retry_call', None)
-        
-        def patched_api_retry_call(func, *args, **kwargs):
-            func_name = getattr(func, '__name__', str(func))
-            if 'leverage_tier' in func_name.lower():
-                log.info("Skipping get_leverage_tiers via api_retry_call patch (papi incompatible)")
-                return {}
-            if original_api_retry:
-                return original_api_retry(func, *args, **kwargs)
-            return func(*args, **kwargs)
-        
-        if not getattr(ft_common, '_papi_retry_patched', False):
-            ft_common.api_retry_call = patched_api_retry_call
-            ft_common._papi_retry_patched = True
-            log.info("freqtrade.exchange.common.api_retry_call patched to skip leverage_tiers")
-    except ImportError:
-        log.warning("Could not import freqtrade.exchange.common")
-    except Exception as e:
-        log.warning("Failed to patch api_retry_call: %s", e)
+    # 3. Mock fetchLeverageTiers on ccxt.binance — this is the actual CCXT method
+    # that freqtrade calls (via its Exchange wrapper). papi returns 404 on /v1/leverageBrackets.
+    def mock_fetch_leverage_tiers(self, symbols=None, params=None):
+        log.info("ccxt.binance.fetchLeverageTiers mocked (papi does not support leverageBrackets)")
+        return {}
 
-    # 4. Also patch the Exchange class method directly as fallback
+    if not getattr(binance_cls, "_papi_flt_mocked", False):
+        binance_cls.fetchLeverageTiers = mock_fetch_leverage_tiers
+        binance_cls._papi_flt_mocked = True
+        log.info("ccxt.binance.fetchLeverageTiers mocked")
+
+    # 4. Also mock get_leverage_tiers (freqtrade's own method name) on the Exchange wrapper
     try:
         from freqtrade.exchange import Exchange as FtExchange
-        
+
         def mock_get_leverage_tiers_ft(self, symbols=None):
             log.info("freqtrade.Exchange.get_leverage_tiers mocked (papi incompatible)")
             return {}
-        
-        if not getattr(FtExchange, "_papi_leverage_mocked", False):
+
+        if not getattr(FtExchange, "_papi_glt_mocked", False):
             FtExchange.get_leverage_tiers = mock_get_leverage_tiers_ft
-            FtExchange._papi_leverage_mocked = True
+            FtExchange._papi_glt_mocked = True
             log.info("freqtrade.Exchange.get_leverage_tiers mocked")
     except ImportError:
-        pass
+        log.warning("Could not import freqtrade.exchange.Exchange")
     except Exception as e:
-        log.debug("Could not patch FtExchange: %s", e)
+        log.debug("Could not patch FtExchange.get_leverage_tiers: %s", e)
 
     log.info("CCXT papi-only patch complete: ALL requests -> %s", PAPI_BASE)
 
