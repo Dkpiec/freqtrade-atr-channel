@@ -15,13 +15,7 @@
             "enableRateLimit": true,
             "options": {
                 "defaultType": "swap",
-                "recvWindow": 15000,
-                "urls": {
-                    "api": {
-                        "fapi": "https://papi.binance.com/papi",
-                        "dapi": "https://papi.binance.com/papi"
-                    }
-                }
+                "recvWindow": 30000
             }
         },
         "pair_whitelist": [
