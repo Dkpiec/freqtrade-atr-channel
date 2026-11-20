@@ -1,8 +1,9 @@
 services:
-  freqtrade-atr-channel:
-    build: .
-    container_name: freqtrade-atr-channel
-    restart: unless-stopped
-    environment:
-      - FREQTRADE_TELEGRAM_TOKEN=${FREQTRADE_TELEGRAM_TOKEN}
-      - FREQTRADE_TELEGRAM_CHAT_ID=${FREQTRADE_TELEGRAM_CHAT_ID}
+ freqtrade-atr-channel:
+ build: .
+ image: freqtrade-atr-channel:latest
+ container_name: freqtrade-atr-channel
+ restart: unless-stopped
+ environment:
+ - FREQTRADE_TELEGRAM_TOKEN=${FREQTRADE_TELEGRAM_TOKEN}
+ - FREQTRADE_TELEGRAM_CHAT_ID=${FREQTRADE_TELEGRAM_CHAT_ID}
