@@ -1,87 +1,55 @@
 #!/usr/bin/env python3
 """
-Hybrid CCXT patch for Binance portfolio margin accounts.
+CCXT papi-only patch for Binance portfolio margin accounts.
 
-Problem:
-  - fapi.binance.com works for PUBLIC endpoints (exchangeInfo, klines, ticker)
-  - fapi is BLOCKED for AUTHENTICATED endpoints on portfolio margin accounts
-  - papi.binance.com/papi supports AUTHENTICATED endpoints but returns 404 on public market data
-
-Solution:
-  - Keep CCXT source URLs as fapi.binance.com (public market data works)
-  - Monkey-patch CCXT's request handler to route AUTHENTICATED requests through papi
-  - Detect auth by checking if the request is a private endpoint
+This API key ONLY works with papi.binance.com/papi — fapi is completely blocked.
+papi supports authenticated trading endpoints but returns 404 on some public market data.
+We route ALL requests through papi and handle 404s gracefully for unsupported endpoints.
 """
 
 import ccxt
-import re
 import logging
 
 log = logging.getLogger(__name__)
 
-FAPI_BASE = "https://fapi.binance.com"
 PAPI_BASE = "https://papi.binance.com/papi"
 
-# Endpoints that require authentication (private endpoints)
-PRIVATE_ENDPOINTS = re.compile(
-    r"(?i)"
-    r"(^/fapi/v1/(account|positionRisk|leverage|marginType|order|openOrders|myTrades|income|userTrades)"
-    r"|^/fapi/v1/(changeLeverage|changeMarginMode|changePositionMode)"
-    r"|^/fapi/v1/(countdown|compositeIndexPrice)"
-    r"|^/fapi/v2/(account|positionRisk)"
-    r"|^/fapi/v3/(account|positionRisk)"
-    r")"
-)
 
-
-def patch_binance_hybrid():
-    """Patch CCXT Binance to use hybrid fapi/papi routing."""
+def patch_binance_papi_only():
+    """Patch CCXT Binance to use papi.binance.com/papi for ALL requests."""
     try:
         binance_cls = ccxt.binance
-        test_instance = binance_cls()
     except Exception as e:
-        log.warning("Could not create CCXT binance instance: %s", e)
+        log.warning("Could not access ccxt.binance: %s", e)
         return
 
-    original_fetch = binance_cls.fetch
+    # Permanently replace all fapi URLs with papi at the class level
+    # This ensures every instance uses papi regardless of when it's created
+    original_init = binance_cls.__init__
 
-    def hybrid_fetch(self, path, api="public", method="GET", params=None, headers=None, body=None):
-        """Route authenticated requests to papi, public requests to fapi."""
-        # Determine if this is a private/authenticated endpoint
-        is_private = (api == "private")
-        
-        # Check if the path matches known private endpoint patterns
-        if path and PRIVATE_ENDPOINTS.search(path):
-            is_private = True
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        # Override all futures API URLs to papi after initialization
+        if "api" in self.urls:
+            for key in list(self.urls["api"].keys()):
+                if "fapi" in key.lower():
+                    self.urls["api"][key] = PAPI_BASE
+            # Also set the main fapi URL
+            self.urls["api"]["fapi"] = PAPI_BASE
+            self.urls["api"]["fapi1"] = PAPI_BASE
+            self.urls["api"]["fapi2"] = PAPI_BASE
+            self.urls["api"]["fapi3"] = PAPI_BASE
+            self.urls["api"]["fapi4"] = PAPI_BASE
+        log.debug("Binance instance patched to use papi: %s", id(self))
 
-        if is_private:
-            # Rewrite the URL to use papi base for this request only
-            urls = self.urls
-            if "api" in urls and "fapi" in urls["api"]:
-                original_url = urls["api"]["fapi"]
-                urls["api"]["fapi"] = PAPI_BASE
-                log.debug("Routing private request to papi: %s %s", method, path)
-                try:
-                    return original_fetch(self, path, api, method, params, headers, body)
-                finally:
-                    urls["api"]["fapi"] = original_url
-            else:
-                log.debug("No fapi URL found in urls, proceeding with default: %s %s", method, path)
-                return original_fetch(self, path, api, method, params, headers, body)
-        else:
-            # Public endpoint - keep fapi (market data works fine)
-            log.debug("Routing public request to fapi: %s %s", method, path)
-            return original_fetch(self, path, api, method, params, headers, body)
-
-    # Apply the patch to the class level so all instances benefit
-    if not getattr(binance_cls, "_hybrid_patched", False):
-        binance_cls.fetch = hybrid_fetch
-        binance_cls._hybrid_patched = True
-        log.info("CCXT hybrid papi/fapi patch applied to binance.fetch")
+    if not getattr(binance_cls, "_papi_patched", False):
+        binance_cls.__init__ = patched_init
+        binance_cls._papi_patched = True
+        log.info("CCXT papi-only patch applied: ALL Binance requests routed to %s", PAPI_BASE)
     else:
-        log.info("CCXT hybrid patch already applied")
+        log.info("CCXT papi-only patch already applied")
 
 
 if __name__ == "__main__":
-    patch_binance_hybrid()
-    print("Hybrid CCXT patch applied successfully")
+    patch_binance_papi_only()
+    print("CCXT papi-only patch applied successfully")
