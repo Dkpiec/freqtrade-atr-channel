@@ -7,9 +7,10 @@ FROM freqtradeorg/freqtrade:stable
 # Solution: keep fapi URLs in CCXT source, monkey-patch at runtime to route
 # authenticated requests through papi while keeping market data on fapi.
 COPY sitecustomize.py /freqtrade/sitecustomize.py
-RUN SITE_PKG=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
+RUN SITE_PKG=$(python3 -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || echo "/usr/local/lib/python3/site-packages") && \
+    mkdir -p "$SITE_PKG" && \
     cp /freqtrade/sitecustomize.py "$SITE_PKG/sitecustomize.py" && \
-    echo "sitecustomize.py installed to $SITE_PKG — papi patches will apply before freqtrade starts"
+    echo "sitecustomize.py installed to $SITE_PKG"
 
 # Bake in config and strategy
 COPY config.json /freqtrade/user_data/config.json
