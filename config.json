@@ -30,6 +30,11 @@
         "use_order_book": true,
         "order_book_top": 1
     },
+    "pairlists": [
+        {
+            "method": "StaticPairList"
+        }
+    ],
     "strategy": "ATR_CHANNEL_2H",
     "timeframe": "2h",
     "internals": {
@@ -37,8 +42,8 @@
     },
     "telegram": {
         "enabled": true,
-        "token": "${FREQTRADE_TELEGRAM_TOKEN}",
-        "chat_id": "${FREQTRADE_TELEGRAM_CHAT_ID}",
+        "token": "FREQTRADE_TELEGRAM_TOKEN",
+        "chat_id": "FREQTRADE_TELEGRAM_CHAT_ID",
         "notification_settings": {
             "status": "on",
             "warning": "on",
@@ -57,7 +62,7 @@
         "listen_port": 8080,
         "verbosity": "error",
         "enable_openapi": false,
-        "jwt_secret_key": "",
+        "jwt_secret_key": "atr-channel-2h-jwt-secret-key-2026-minimum-32-chars",
         "CORS_origins": [],
         "username": "",
         "password": ""
