@@ -1,0 +1,12 @@
+services:
+  freqtrade-atr-channel:
+    image: freqtradeorg/freqtrade:stable
+    container_name: freqtrade-atr-channel
+    restart: unless-stopped
+    volumes:
+      - ./user_data:/freqtrade/user_data
+      - ./config.json:/freqtrade/config.json
+    environment:
+      - FREQTRADE_TELEGRAM_TOKEN=${FREQTRADE_TELEGRAM_TOKEN}
+      - FREQTRADE_TELEGRAM_CHAT_ID=${FREQTRADE_TELEGRAM_CHAT_ID}
+    command: trade --config /freqtrade/config.json --strategy ATR_CHANNEL_2H
