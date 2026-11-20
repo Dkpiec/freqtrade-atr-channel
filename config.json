@@ -5,13 +5,12 @@
     "stake_currency": "USDT",
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 0.99,
-    "dry_run": true,
-    "dry_run_wallet": 1000,
+    "dry_run": false,
     "cancel_open_orders_on_exit": false,
     "exchange": {
         "name": "binance",
-        "key": "",
-        "secret": "",
+        "key": "__BINANCE_KEY_PLACEHOLDER__",
+        "secret": "__BINANCE_SECRET_PLACEHOLDER__",
         "ccxt_config": {
             "enableRateLimit": true
         },
