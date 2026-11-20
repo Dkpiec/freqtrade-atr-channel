@@ -3,8 +3,8 @@ set -e
 mkdir -p /freqtrade/user_data/strategies
 
 # Download config and strategy from GitHub
-curl -sf "https://raw.githubusercontent.com/Dkpiec/freqtrade-atr-channel/COMMIT_HASH/config.json" -o /freqtrade/user_data/config.json
-curl -sf "https://raw.githubusercontent.com/Dkpiec/freqtrade-atr-channel/COMMIT_HASH/user_data/strategies/ATR_CHANNEL_2H.py" -o /freqtrade/user_data/strategies/ATR_CHANNEL_2H.py
+curl -sf "https://raw.githubusercontent.com/Dkpiec/freqtrade-atr-channel/f2e243ed85c05e5965f6058291feacd246a7699a/config.json" -o /freqtrade/user_data/config.json
+curl -sf "https://raw.githubusercontent.com/Dkpiec/freqtrade-atr-channel/f2e243ed85c05e5965f6058291feacd246a7699a/user_data/strategies/ATR_CHANNEL_2H.py" -o /freqtrade/user_data/strategies/ATR_CHANNEL_2H.py
 
 # Inject credentials and patch CCXT for papi.binance.com
 python3 << 'PYEOF'
