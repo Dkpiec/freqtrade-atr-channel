@@ -1,17 +1,9 @@
 FROM freqtradeorg/freqtrade:stable
 
-# Patch CCXT source at build time: replace fapi.binance.com with papi.binance.com/papi
-RUN CCXT_DIR=$(python3 -c "import ccxt, os; print(os.path.dirname(ccxt.__file__))") && \
-    echo "Patching CCXT at: $CCXT_DIR" && \
-    find "$CCXT_DIR" -name "*.py" -exec grep -l "fapi.binance.com" {} \; | while read f; do \
-        sed -i 's|https://fapi.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi1.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi2.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi3.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi4.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        echo "Patched: $f"; \
-    done && \
-    echo "CCXT patch complete"
+# NOTE: papi.binance.com does NOT support market data endpoints (exchangeInfo, klines, etc.)
+# Portfolio margin accounts work fine via standard fapi.binance.com — no patch needed.
+# Previous papi patch removed 2026-11-20 after confirming 404 on all trading endpoints.
+RUN echo "Using default fapi.binance.com endpoints (papi incompatible with CCXT market loading)"
 
 # Bake in config and strategy
 COPY config.json /freqtrade/user_data/config.json
