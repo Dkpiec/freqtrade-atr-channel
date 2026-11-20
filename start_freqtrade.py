@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""
+Freqtrade startup wrapper that applies papi-only CCXT patches
+IN THE SAME PROCESS before freqtrade initializes its Exchange.
+This avoids the cross-process mocking issue where standalone
+patch scripts can't affect freqtrade's bound method references.
+"""
+import sys
+import os
+import logging
+import json
+
+log = logging.getLogger("papi_wrapper")
+
+# ── 1. Apply CCXT papi patches BEFORE importing freqtrade ──
+FAPI_PREFIXES = [
+    "https://fapi.binance.com",
+    "https://fapi1.binance.com",
+    "https://fapi2.binance.com",
+    "https://fapi3.binance.com",
+    "https://fapi4.binance.com",
+]
+PAPI_BASE = "https://papi.binance.com/papi"
+
+def _rewrite_url(url):
+    if not isinstance(url, str):
+        return url
+    for prefix in FAPI_PREFIXES:
+        if url.startswith(prefix):
+            return PAPI_BASE + url[len(prefix):]
+    return url
+
+import ccxt
+binance_cls = ccxt.binance
+
+# Patch fetch
+_original_fetch = binance_cls.fetch
+def _patched_fetch(self, url, method="GET", headers=None, body=None):
+    rewritten = _rewrite_url(url)
+    return _original_fetch(self, rewritten, method, headers, body)
+binance_cls.fetch = _patched_fetch
+
+# Patch __init__ urls
+_original_init = binance_cls.__init__
+def _patched_init(self, *args, **kwargs):
+    _original_init(self, *args, **kwargs)
+    if "api" in self.urls:
+        for key in list(self.urls["api"].keys()):
+            if "fapi" in key.lower():
+                self.urls["api"][key] = PAPI_BASE
+        self.urls["api"]["fapi"] = PAPI_BASE
+        self.urls["api"]["fapi1"] = PAPI_BASE
+        self.urls["api"]["fapi2"] = PAPI_BASE
+        self.urls["api"]["fapi3"] = PAPI_BASE
+        self.urls["api"]["fapi4"] = PAPI_BASE
+binance_cls.__init__ = _patched_init
+
+# Mock fetchLeverageTiers on ccxt.binance
+def _mock_flt(self, symbols=None, params=None):
+    log.info("ccxt.binance.fetchLeverageTiers mocked (papi incompatible)")
+    return {}
+binance_cls.fetchLeverageTiers = _mock_flt
+
+log.info("CCXT papi patches applied (fetch + init + fetchLeverageTiers)")
+
+# ── 2. Now import freqtrade and patch its Exchange wrapper ──
+from freqtrade.exchange import Exchange as FtExchange
+
+def _mock_glt(self, symbols=None):
+    log.info("freqtrade.Exchange.get_leverage_tiers mocked (papi incompatible)")
+    return {}
+FtExchange.get_leverage_tiers = _mock_glt
+log.info("freqtrade.Exchange.get_leverage_tiers mocked")
+
+# ── 3. Start freqtrade normally ──
+from freqtrade.main import main
+sys.exit(main())
