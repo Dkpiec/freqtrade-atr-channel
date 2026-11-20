@@ -12,7 +12,17 @@
         "key": "__BINANCE_KEY_PLACEHOLDER__",
         "secret": "__BINANCE_SECRET_PLACEHOLDER__",
         "ccxt_config": {
-            "enableRateLimit": true
+            "enableRateLimit": true,
+            "options": {
+                "defaultType": "swap",
+                "recvWindow": 15000,
+                "urls": {
+                    "api": {
+                        "fapi": "https://papi.binance.com/papi",
+                        "dapi": "https://papi.binance.com/papi"
+                    }
+                }
+            }
         },
         "pair_whitelist": [
             "TRX/USDT:USDT"
