@@ -1,26 +1,19 @@
 FROM freqtradeorg/freqtrade:stable
 
-# Patch CCXT source at build time: replace fapi.binance.com with papi.binance.com/papi
-# NOTE: fapi is blocked for this portfolio margin account; papi is required.
-# papi supports ping/time but NOT exchangeInfo/klines — CCXT market loading will fail
-# unless we also monkey-patch load_markets to skip exchangeInfo or use cached markets.
-RUN CCXT_DIR=$(python3 -c "import ccxt, os; print(os.path.dirname(ccxt.__file__))") && \
-    echo "Patching CCXT at: $CCXT_DIR" && \
-    find "$CCXT_DIR" -name "*.py" -exec grep -l "fapi.binance.com" {} \; | while read f; do \
-        sed -i 's|https://fapi.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi1.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi2.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi3.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        sed -i 's|https://fapi4.binance.com|https://papi.binance.com/papi|g' "$f" && \
-        echo "Patched: $f"; \
-    done && \
-    echo "CCXT papi patch complete"
+# Hybrid CCXT patch: fapi for public market data, papi for authenticated trading
+# fapi is blocked for this portfolio margin account on AUTHENTICATED endpoints only.
+# Public endpoints (exchangeInfo, klines, ticker) work fine on fapi.
+# papi supports authenticated trading but NOT public market data endpoints.
+# Solution: keep fapi URLs in CCXT source, monkey-patch at runtime to route
+# authenticated requests through papi while keeping market data on fapi.
+COPY hybrid_ccxt_patch.py /freqtrade/hybrid_ccxt_patch.py
+RUN echo "Hybrid CCXT patch installed (fapi=market data, papi=trading)"
 
 # Bake in config and strategy
 COPY config.json /freqtrade/user_data/config.json
 COPY user_data/strategies/ATR_CHANNEL_2H.py /freqtrade/user_data/strategies/ATR_CHANNEL_2H.py
 
-# Entrypoint injects credentials from env vars at runtime
+# Entrypoint injects credentials from env vars at runtime AND applies hybrid CCXT patch
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["python3 -c \"import json,os;cfg=json.load(open('/freqtrade/user_data/config.json'));cfg['exchange']['key']=os.environ.get('BINANCE_API_KEY','');cfg['exchange']['secret']=os.environ.get('BINANCE_SECRET_KEY','');t=os.environ.get('FREQTRADE_TELEGRAM_TOKEN','');c=os.environ.get('FREQTRADE_TELEGRAM_CHAT_ID','');cfg['telegram']['token']=t if t else cfg['telegram']['token'];cfg['telegram']['chat_id']=c if c else cfg['telegram']['chat_id'];json.dump(cfg,open('/freqtrade/user_data/config.json','w'),indent=4);print('LIVE:', 'YES' if not cfg.get('dry_run') else 'NO');print('Key injected:', 'YES' if cfg['exchange']['key'] else 'NO')\" && exec freqtrade trade --config /freqtrade/user_data/config.json --strategy ATR_CHANNEL_2H --userdir /freqtrade/user_data"]
+CMD ["python3 -c \"import json,os;cfg=json.load(open('/freqtrade/user_data/config.json'));cfg['exchange']['key']=os.environ.get('BINANCE_API_KEY','');cfg['exchange']['secret']=os.environ.get('BINANCE_SECRET_KEY','');t=os.environ.get('FREQTRADE_TELEGRAM_TOKEN','');c=os.environ.get('FREQTRADE_TELEGRAM_CHAT_ID','');cfg['telegram']['token']=t if t else cfg['telegram']['token'];cfg['telegram']['chat_id']=c if c else cfg['telegram']['chat_id'];json.dump(cfg,open('/freqtrade/user_data/config.json','w'),indent=4);print('LIVE:', 'YES' if not cfg.get('dry_run') else 'NO');print('Key injected:', 'YES' if cfg['exchange']['key'] else 'NO')\" && python3 /freqtrade/hybrid_ccxt_patch.py && exec freqtrade trade --config /freqtrade/user_data/config.json --strategy ATR_CHANNEL_2H --userdir /freqtrade/user_data"]
 
