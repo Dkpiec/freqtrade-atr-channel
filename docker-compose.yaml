@@ -5,8 +5,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./user_data:/freqtrade/user_data
-      - ./:/freqtrade
+      - ./config.json:/freqtrade/user_data/config.json:ro
     environment:
       - FREQTRADE_TELEGRAM_TOKEN=${FREQTRADE_TELEGRAM_TOKEN}
       - FREQTRADE_TELEGRAM_CHAT_ID=${FREQTRADE_TELEGRAM_CHAT_ID}
-    command: trade --config /freqtrade/config.json --strategy ATR_CHANNEL_2H
+    command: trade --config /freqtrade/user_data/config.json --strategy ATR_CHANNEL_2H --userdir /freqtrade/user_data
