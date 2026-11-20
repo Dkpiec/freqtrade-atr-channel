@@ -3,8 +3,9 @@
 CCXT papi-only patch for Binance portfolio margin accounts.
 
 This API key ONLY works with papi.binance.com/papi — fapi is completely blocked.
-We monkey-patch fetch() to rewrite ANY fapi URL to papi at request time,
-ensuring leverage_tiers, account, positionRisk, and all other endpoints go through papi.
+papi does NOT support leverageBrackets (returns 404), so we mock get_leverage_tiers
+to return an empty dict and prevent freqtrade from crashing on startup.
+All other requests are routed through papi via fetch-level URL rewriting.
 """
 
 import ccxt
@@ -40,10 +41,10 @@ def patch_binance_papi_only():
         log.warning("Could not access ccxt.binance: %s", e)
         return
 
+    # 1. Patch fetch to rewrite fapi URLs to papi at request time
     original_fetch = binance_cls.fetch
 
     def patched_fetch(self, url, method="GET", headers=None, body=None):
-        """Rewrite fapi URLs to papi before every request."""
         rewritten = _rewrite_url(url)
         if rewritten != url:
             log.debug("Rewriting fapi->papi: %s -> %s", url[:80], rewritten[:80])
@@ -52,11 +53,9 @@ def patch_binance_papi_only():
     if not getattr(binance_cls, "_papi_fetch_patched", False):
         binance_cls.fetch = patched_fetch
         binance_cls._papi_fetch_patched = True
-        log.info("CCXT papi-only fetch patch applied: ALL fapi URLs rewritten to %s", PAPI_BASE)
-    else:
-        log.info("CCXT papi-only fetch patch already applied")
+        log.info("CCXT papi-only fetch patch applied")
 
-    # Also patch __init__ to set urls dict at construction time
+    # 2. Patch __init__ to set urls dict at construction time
     original_init = binance_cls.__init__
 
     def patched_init(self, *args, **kwargs):
@@ -75,6 +74,19 @@ def patch_binance_papi_only():
         binance_cls.__init__ = patched_init
         binance_cls._papi_init_patched = True
         log.info("CCXT papi-only init patch applied")
+
+    # 3. Mock get_leverage_tiers — papi returns 404 on /v1/leverageBrackets
+    # Freqtrade calls this during exchange init; returning {} skips it gracefully
+    def mock_get_leverage_tiers(self, symbols=None):
+        log.info("get_leverage_tiers mocked (papi does not support leverageBrackets)")
+        return {}
+
+    if not getattr(binance_cls, "_papi_leverage_mocked", False):
+        binance_cls.get_leverage_tiers = mock_get_leverage_tiers
+        binance_cls._papi_leverage_mocked = True
+        log.info("CCXT get_leverage_tiers mocked for papi compatibility")
+
+    log.info("CCXT papi-only patch complete: ALL requests -> %s", PAPI_BASE)
 
 
 if __name__ == "__main__":
