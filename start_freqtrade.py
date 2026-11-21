@@ -37,10 +37,12 @@ binance_cls = ccxt.binance
 _PAPI_INCOMPATIBLE_SUFFIXES = [
     "positionSide/dual",
     "multiAssetsMargin",
+    "leverageBracket",
 ]
 _PAPI_MOCK_RESPONSES = {
     "positionSide/dual": {"dualSidePosition": False},
     "multiAssetsMargin": {"multiAssetsMargin": False},
+    "leverageBracket": [],
 }
 
 # Patch fetch
