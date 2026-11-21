@@ -62,9 +62,19 @@ def _patched_fetch(self, url, method="GET", headers=None, body=None):
     rewritten = _rewrite_url(url)
     log.debug(f"papi_fetch: {method} {url[:100]} -> {rewritten[:100]}")
     result = _original_fetch(self, rewritten, method, headers, body)
-    # Log balance/account calls specifically
-    if any(k in rewritten for k in ['account', 'balance']):
-        log.info(f"papi_fetch {rewritten[:100]} returned: {str(result)[:200]}")
+    # Transform papi account response to standard CCXT balance format
+    if 'account' in rewritten and isinstance(result, dict) and 'accountEquity' in result:
+        equity = float(result.get('accountEquity', 0))
+        init_margin = float(result.get('accountInitialMargin', 0))
+        free = equity - init_margin
+        log.info(f"papi account transformed: equity={equity}, used={init_margin}, free={free}")
+        result = {
+            'info': result,
+            'USDT': {'free': free, 'used': init_margin, 'total': equity},
+            'free': {'USDT': free},
+            'used': {'USDT': init_margin},
+            'total': {'USDT': equity},
+        }
     return result
 binance_cls.fetch = _patched_fetch
 
@@ -89,36 +99,7 @@ def _mock_flt(self, symbols=None, params=None):
     return {}
 binance_cls.fetchLeverageTiers = _mock_flt
 
-# Mock fetchBalance — papi does not serve standard fapi account/balance endpoints
-def _mock_fetch_balance(self, params=None):
-    log.info("ccxt.binance.fetchBalance mocked (papi incompatible, returning USDT stub)")
-    return {
-        "info": {},
-        "timestamp": None,
-        "datetime": None,
-        "total": {},
-        "free": {},
-        "used": {},
-        "total_usdt": {"USDT": 1000.0},
-        "free_usdt": {"USDT": 1000.0},
-        "used_usdt": {"USDT": 0.0},
-        "total_free_used": {},
-        "free_USDT": {"USDT": 1000.0},
-        "used_USDT": {"USDT": 0.0},
-        "total_USDT": {"USDT": 1000.0},
-        "USDT": {
-            "free": 1000.0,
-            "used": 0.0,
-            "total": 1000.0,
-            "info": {"asset": "USDT", "free": "1000.0", "locked": "0.0", "marginAsset": "USDT", "walletBalance": "1000.0", "crossWalletBalance": "0.0", "crossUsedBalance": "0.0", "available": "1000.0"},
-        },
-        "currencies": {},
-        "updated": None,
-        "nonce": None,
-    }
-binance_cls.fetchBalance = _mock_fetch_balance
-
-log.info("CCXT papi patches applied (fetch + init + fetchLeverageTiers + fetchBalance)")
+log.info("CCXT papi patches applied (fetch + init + fetchLeverageTiers + account transform)")
 
 # ── 2. Now import freqtrade and patch its Exchange wrapper ──
 from freqtrade.exchange import Exchange as FtExchange
