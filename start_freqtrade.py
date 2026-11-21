@@ -99,23 +99,7 @@ def _mock_flt(self, symbols=None, params=None):
     return {}
 binance_cls.fetchLeverageTiers = _mock_flt
 
-# Override fetchBalance directly — freqtrade may call this instead of raw fetch()
-_original_fetch_balance = binance_cls.fetchBalance
-def _patched_fetch_balance(self, params=None):
-    # Call our patched fetch via the account endpoint to get transformed response
-    log.info("ccxt.binance.fetchBalance called — routing through papi account")
-    try:
-        result = self.fetch(self.urls['api']['fapi'] + '/account', params=params)
-        if isinstance(result, dict) and 'USDT' in result:
-            log.info(f"fetchBalance returning transformed papi data: {result.get('USDT')}")
-            return result
-    except Exception as e:
-        log.warning(f"fetchBalance papi fallback failed: {e}")
-    # Fallback to original if transformation didn't work
-    return _original_fetch_balance(self, params)
-binance_cls.fetchBalance = _patched_fetch_balance
-
-log.info("CCXT papi patches applied (fetch + init + fetchLeverageTiers + account transform + fetchBalance)")
+log.info("CCXT papi patches applied (fetch + init + fetchLeverageTiers + account transform)")
 
 # ── 2. Now import freqtrade and patch its Exchange wrapper ──
 from freqtrade.exchange import Exchange as FtExchange
@@ -125,6 +109,29 @@ def _mock_glt(self, symbols=None):
     return {}
 FtExchange.get_leverage_tiers = _mock_glt
 log.info("freqtrade.Exchange.get_leverage_tiers mocked")
+
+# Patch get_balances to ensure papi account data reaches the wallet layer
+_original_get_balances = FtExchange.get_balances
+def _patched_get_balances(self):
+    result = _original_get_balances(self)
+    # If result is empty/zero but we have papi account data, inject it
+    if isinstance(result, dict):
+        usdt = result.get('USDT', {})
+        total = usdt.get('total', 0) if isinstance(usdt, dict) else 0
+        if total == 0:
+            # Force a fresh account fetch through our patched fetch()
+            try:
+                account_data = self._ccxt_exchange.fetch(
+                    self._ccxt_exchange.urls['api']['fapi'] + '/account'
+                )
+                if isinstance(account_data, dict) and 'USDT' in account_data:
+                    log.info(f"get_balances injecting papi data: {account_data['USDT']}")
+                    return account_data
+            except Exception as e:
+                log.warning(f"get_balances papi injection failed: {e}")
+    return result
+FtExchange.get_balances = _patched_get_balances
+log.info("freqtrade.Exchange.get_balances patched for papi balance injection")
 
 # ── 3. Start freqtrade normally ──
 # Prepend 'trade' subcommand since entrypoint passes --config/--strategy directly
