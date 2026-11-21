@@ -99,7 +99,23 @@ def _mock_flt(self, symbols=None, params=None):
     return {}
 binance_cls.fetchLeverageTiers = _mock_flt
 
-log.info("CCXT papi patches applied (fetch + init + fetchLeverageTiers + account transform)")
+# Override fetchBalance directly — freqtrade may call this instead of raw fetch()
+_original_fetch_balance = binance_cls.fetchBalance
+def _patched_fetch_balance(self, params=None):
+    # Call our patched fetch via the account endpoint to get transformed response
+    log.info("ccxt.binance.fetchBalance called — routing through papi account")
+    try:
+        result = self.fetch(self.urls['api']['fapi'] + '/account', params=params)
+        if isinstance(result, dict) and 'USDT' in result:
+            log.info(f"fetchBalance returning transformed papi data: {result.get('USDT')}")
+            return result
+    except Exception as e:
+        log.warning(f"fetchBalance papi fallback failed: {e}")
+    # Fallback to original if transformation didn't work
+    return _original_fetch_balance(self, params)
+binance_cls.fetchBalance = _patched_fetch_balance
+
+log.info("CCXT papi patches applied (fetch + init + fetchLeverageTiers + account transform + fetchBalance)")
 
 # ── 2. Now import freqtrade and patch its Exchange wrapper ──
 from freqtrade.exchange import Exchange as FtExchange
