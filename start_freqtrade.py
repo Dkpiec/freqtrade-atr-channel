@@ -33,9 +33,22 @@ def _rewrite_url(url):
 import ccxt
 binance_cls = ccxt.binance
 
+# Endpoints that papi does not serve — intercept before rewriting
+_PAPI_INCOMPATIBLE_PATHS = {
+    "/fapi/v1/positionSide/dual": {"dualSidePosition": False},
+    "/fapi/v1/multiAssetsMargin": {"multiAssetsMargin": False},
+}
+
 # Patch fetch
 _original_fetch = binance_cls.fetch
 def _patched_fetch(self, url, method="GET", headers=None, body=None):
+    # Check original URL path against incompatible endpoints
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    for path_suffix, mock_response in _PAPI_INCOMPATIBLE_PATHS.items():
+        if parsed.path.endswith(path_suffix):
+            log.info(f"Mocked incompatible endpoint: {path_suffix}")
+            return mock_response
     rewritten = _rewrite_url(url)
     return _original_fetch(self, rewritten, method, headers, body)
 binance_cls.fetch = _patched_fetch
