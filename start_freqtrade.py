@@ -73,5 +73,7 @@ FtExchange.get_leverage_tiers = _mock_glt
 log.info("freqtrade.Exchange.get_leverage_tiers mocked")
 
 # ── 3. Start freqtrade normally ──
+# Prepend 'trade' subcommand since entrypoint passes --config/--strategy directly
 from freqtrade.main import main
+sys.argv.insert(1, 'trade')
 sys.exit(main())
