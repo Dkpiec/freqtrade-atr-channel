@@ -20,7 +20,7 @@ FAPI_PREFIXES = [
     "https://fapi3.binance.com",
     "https://fapi4.binance.com",
 ]
-PAPI_BASE = "https://papi.binance.com/papi"
+PAPI_BASE = "https://papi.binance.com/papi/v1"
 
 def _rewrite_url(url):
     if not isinstance(url, str):
