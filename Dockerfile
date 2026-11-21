@@ -6,9 +6,9 @@ FROM freqtradeorg/freqtrade:stable
 # papi supports authenticated trading but NOT public market data endpoints.
 # Solution: keep fapi URLs in CCXT source, monkey-patch at runtime to route
 # authenticated requests through papi while keeping market data on fapi.
+COPY --chmod=755 entrypoint.sh /freqtrade/entrypoint.sh
 COPY start_freqtrade.py /freqtrade/start_freqtrade.py
-COPY entrypoint.sh /freqtrade/entrypoint.sh
-RUN chmod +x /freqtrade/entrypoint.sh /freqtrade/start_freqtrade.py && echo "Entrypoint + papi wrapper installed"
+RUN chmod +x /freqtrade/start_freqtrade.py 2>/dev/null || true
 
 # Bake in config and strategy
 COPY config.json /freqtrade/user_data/config.json
