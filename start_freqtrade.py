@@ -33,22 +33,28 @@ def _rewrite_url(url):
 import ccxt
 binance_cls = ccxt.binance
 
-# Endpoints that papi does not serve — intercept before rewriting
-_PAPI_INCOMPATIBLE_PATHS = {
-    "/fapi/v1/positionSide/dual": {"dualSidePosition": False},
-    "/fapi/v1/multiAssetsMargin": {"multiAssetsMargin": False},
+# Endpoints that papi does not serve — match BOTH fapi and papi paths
+_PAPI_INCOMPATIBLE_SUFFIXES = [
+    "positionSide/dual",
+    "multiAssetsMargin",
+]
+_PAPI_MOCK_RESPONSES = {
+    "positionSide/dual": {"dualSidePosition": False},
+    "multiAssetsMargin": {"multiAssetsMargin": False},
 }
 
 # Patch fetch
 _original_fetch = binance_cls.fetch
 def _patched_fetch(self, url, method="GET", headers=None, body=None):
-    # Check original URL path against incompatible endpoints
+    # Check both original and rewritten URL for incompatible endpoints
     from urllib.parse import urlparse
-    parsed = urlparse(url)
-    for path_suffix, mock_response in _PAPI_INCOMPATIBLE_PATHS.items():
-        if parsed.path.endswith(path_suffix):
-            log.info(f"Mocked incompatible endpoint: {path_suffix}")
-            return mock_response
+    for check_url in [url, _rewrite_url(url)]:
+        parsed = urlparse(check_url)
+        for suffix in _PAPI_INCOMPATIBLE_SUFFIXES:
+            if parsed.path.endswith(suffix):
+                mock_resp = _PAPI_MOCK_RESPONSES.get(suffix, {})
+                log.info(f"Mocked incompatible endpoint: {suffix} (url={check_url[:80]})")
+                return mock_resp
     rewritten = _rewrite_url(url)
     return _original_fetch(self, rewritten, method, headers, body)
 binance_cls.fetch = _patched_fetch
