@@ -110,34 +110,48 @@ def _mock_glt(self, symbols=None):
 FtExchange.get_leverage_tiers = _mock_glt
 log.info("freqtrade.Exchange.get_leverage_tiers mocked")
 
-# Patch Wallets._update_wallets to inject papi account data into the wallet cache
+# Discover and patch the correct Wallets update method
 from freqtrade.wallets import Wallets as FtWallets
-_original_update_wallets = FtWallets._update_wallets
-def _patched_update_wallets(self):
-    _original_update_wallets(self)
-    # After normal update, check if USDT balance is zero and inject papi data
-    usdt_wallet = self._wallets.get('USDT', None)
-    if usdt_wallet is not None:
-        total = getattr(usdt_wallet, 'total', 0)
-        if total == 0:
-            try:
-                ccxt_ex = self._exchange._ccxt_exchange if hasattr(self._exchange, '_ccxt_exchange') else \
-                          self._exchange.exchange if hasattr(self._exchange, 'exchange') else None
+_wallet_methods = [m for m in dir(FtWallets) if not m.startswith('__')]
+log.info(f"Wallets methods available: {_wallet_methods}")
+
+# Try common method names for wallet updates
+for method_name in ['update', 'get_all_balances', 'get_free', 'get_used', 'get_total', '_update', 'sync']:
+    if hasattr(FtWallets, method_name):
+        log.info(f"Found Wallets.{method_name} — will patch this")
+        break
+else:
+    log.warning("No known wallet update method found; listing all public methods for debugging")
+
+# Patch the 'update' method if it exists (most likely candidate)
+if hasattr(FtWallets, 'update'):
+    _original_wallet_update = FtWallets.update
+    def _patched_wallet_update(self, *args, **kwargs):
+        result = _original_wallet_update(self, *args, **kwargs)
+        # After normal update, check if USDT balance is zero and inject papi data
+        try:
+            balances = self.get_all_balances() if hasattr(self, 'get_all_balances') else {}
+            usdt_total = balances.get('USDT', {}).get('total', 0) if isinstance(balances.get('USDT'), dict) else 0
+            if usdt_total == 0:
+                exchange_obj = getattr(self, '_exchange', None) or getattr(self, 'exchange', None)
+                ccxt_ex = getattr(exchange_obj, '_ccxt_exchange', None) or getattr(exchange_obj, 'exchange', None) if exchange_obj else None
                 if ccxt_ex and hasattr(ccxt_ex, 'fetch') and hasattr(ccxt_ex, 'urls'):
                     account_data = ccxt_ex.fetch(ccxt_ex.urls['api']['fapi'] + '/account')
                     if isinstance(account_data, dict) and 'USDT' in account_data:
-                        usdt_info = account_data['USDT']
-                        free = float(usdt_info.get('free', 0))
-                        used = float(usdt_info.get('used', 0))
-                        total_bal = float(usdt_info.get('total', 0))
-                        log.info(f"Wallets injecting papi USDT: free={free}, used={used}, total={total_bal}")
-                        usdt_wallet.total = total_bal
-                        usdt_wallet.free = free
-                        usdt_wallet.used = used
-            except Exception as e:
-                log.warning(f"Wallets papi injection failed: {e}")
-FtWallets._update_wallets = _patched_update_wallets
-log.info("freqtrade.Wallets._update_wallets patched for papi balance injection")
+                        log.info(f"Wallets.update injecting papi USDT: {account_data['USDT']}")
+                        # Store in internal wallets dict
+                        if hasattr(self, '_wallets') and 'USDT' in self._wallets:
+                            w = self._wallets['USDT']
+                            w.total = float(account_data['USDT'].get('total', 0))
+                            w.free = float(account_data['USDT'].get('free', 0))
+                            w.used = float(account_data['USDT'].get('used', 0))
+        except Exception as e:
+            log.warning(f"Wallets.update papi injection failed: {e}")
+        return result
+    FtWallets.update = _patched_wallet_update
+    log.info("freqtrade.Wallets.update patched for papi balance injection")
+else:
+    log.warning("Wallets.update not found — balance injection skipped")
 
 # ── 3. Start freqtrade normally ──
 # Prepend 'trade' subcommand since entrypoint passes --config/--strategy directly
