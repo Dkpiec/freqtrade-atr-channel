@@ -119,16 +119,16 @@ def _patched_get_balances(self):
         usdt = result.get('USDT', {})
         total = usdt.get('total', 0) if isinstance(usdt, dict) else 0
         if total == 0:
-            # Force a fresh account fetch through our patched fetch()
-            try:
-                account_data = self._ccxt_exchange.fetch(
-                    self._ccxt_exchange.urls['api']['fapi'] + '/account'
-                )
-                if isinstance(account_data, dict) and 'USDT' in account_data:
-                    log.info(f"get_balances injecting papi data: {account_data['USDT']}")
-                    return account_data
-            except Exception as e:
-                log.warning(f"get_balances papi injection failed: {e}")
+            # Find the CCXT exchange object — try known attribute names
+            ccxt_ex = getattr(self, 'exchange', None) or getattr(self, '_exchange', None) or getattr(self, 'ccxt_exchange', None)
+            if ccxt_ex and hasattr(ccxt_ex, 'fetch') and hasattr(ccxt_ex, 'urls'):
+                try:
+                    account_data = ccxt_ex.fetch(ccxt_ex.urls['api']['fapi'] + '/account')
+                    if isinstance(account_data, dict) and 'USDT' in account_data:
+                        log.info(f"get_balances injecting papi data: {account_data['USDT']}")
+                        return account_data
+                except Exception as e:
+                    log.warning(f"get_balances papi injection failed: {e}")
     return result
 FtExchange.get_balances = _patched_get_balances
 log.info("freqtrade.Exchange.get_balances patched for papi balance injection")
